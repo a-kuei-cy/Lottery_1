@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>多獎項批次抽 + 漂亮轉盤動畫</title>
+  <style>
+    :root{
+      --primary:#3f51b5; --accent:#ff4081; --bg:#f7f8fb; --card:#ffffff; --text:#222;
+      --muted:#666; --border:#e6e8ef; --success:#2e7d32; --warn:#ef6c00;
+    }
+    *{box-sizing:border-box}
+    body{ margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans TC","Helvetica Neue",Arial,"PingFang TC","Microsoft JhengHei",sans-serif; background:var(--bg); color:var(--text) }
+    .container{ max-width:1100px; margin:32px auto; padding:0 16px }
+    .card{ background:var(--card); border:1px solid var(--border); border-radius:14px; box-shadow:0 6px 18px rgba(0,0,0,.05); padding:20px }
+    h1{ margin:0 0 12px; font-size:28px; color:var(--primary) }
+    .row{ display:grid; grid-template-columns:1.2fr 1fr; gap:16px }
+    @media (max-width: 980px){ .row{ grid-template-columns:1fr } }
+    textarea, input[type="text"], input[type="number"]{ width:100%; padding:12px; border:1px solid var(--border); border-radius:10px; font-size:15px; background:#fff; resize: vertical }
+    textarea{ min-height:220px; line-height:1.6; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Noto Sans TC", Consolas, "Courier New", monospace }
+    .controls, .flex{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:10px }
+    .btn{ border:none; border-radius:10px; padding:10px 16px; font-size:15px; cursor:pointer; transition:transform .04s, box-shadow .2s, background .2s; box-shadow:0 4px 10px rgba(0,0,0,.08); color:#fff; background:var(--primary) }
+    .btn:active{ transform: translateY(1px) }
+    .btn.acc{ background: var(--accent) }
+    .btn.ghost{ color: var(--primary); background:#fff; border:1px solid var(--border) }
+    .btn.success{ background: var(--success) }
+    .btn.warn{ background: var(--warn) }
+    .inline{ display:flex; align-items:center; gap:8px; font-size:14px; color:var(--muted) }
+    .section-title{ margin-top:6px; font-weight:700 }
+    .result{ margin-top:18px; padding:20px; border-radius:12px; background:#f0f2ff; border:1px dashed #c9ceff; min-height:64px; font-size:16px }
+    .history{ margin-top:14px; border-top:1px solid var(--border); padding-top:12px; font-size:14px; color:#333 }
+    .pill{ display:inline-block; padding:6px 10px; border-radius:999px; border:1px solid var(--border); margin:4px 6px 0 0; background:#fff }
+    .footer{ margin-top:20px; font-size:12px; color:var(--muted); text-align:center }
+
+    /* 奬項設定 */
+    .prize-grid{ display:grid; grid-template-columns: 1.2fr 0.6fr auto; gap:8px; align-items:center; margin-top:8px }
+    .prize-row{ display:contents }
+    .small{ font-size:12px; color:var(--muted) }
+
+    /* 轉盤 */
+    .wheel-wrap{ margin-top:12px; display:none; justify-content:center; align-items:center }
+    .wheel{ position:relative; width:480px; height:480px; border-radius:50%; border:10px solid #fff; box-shadow:0 8px 24px rgba(0,0,0,.12); overflow:hidden; background:#fafafa; transition: transform .3s ease-out }
+    .pointer{ position:absolute; top:-18px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:16px solid transparent; border-right:16px solid transparent; border-bottom:30px solid #e53935; filter: drop-shadow(0 2px 2px rgba(0,0,0,.2)) }
+    .wheel-center{ position:absolute; width:96px; height:96px; background:#fff; border-radius:50%; border:4px solid #eee; top:50%; left:50%; transform:translate(-50%,-50%); display:flex; align-items:center; justify-content:center; font-weight:800; color:#333; letter-spacing:2px; user-select:none }
+    .wheel-center .small{ font-size:12px; font-weight:600; color:#555; letter-spacing:0; position:absolute; top:58px }
+    .note{ font-size:12px; color:#888; margin-top:6px; text-align:center }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <h1>多獎項批次抽 + 漂亮轉盤動畫</h1>
+
+    <div class="row">
+      <!-- 左側：名單與控制 -->
+      <div>
+        <div class="section-title">候選名單</div>
+        <textarea id="list" placeholder="格式1：一行一個
+Alice
+Bob
+小明
+
+格式2：加權（名稱,權重）
+Alice,5
+Bob,1"></textarea>
+        <div class="hint">
+          - 自動忽略空白行與重複項目。<br/>
+          - 啟用加權時，可使用「名稱,權重」；沒寫權重視為 1。<br/>
+          - 抽後若選擇不重複，中獎者會從名單移除（跨獎項也不重複）。
+        </div>
+
+        <div class="controls">
+          <label class="inline"><input id="unique" type="checkbox" checked /> 不重複抽取</label>
+          <label class="inline"><input id="weighted" type="checkbox" /> 加權模式</label>
+          <label class="inline"><input id="useWheel" type="checkbox" /> 使用轉盤動畫</label>
+          <label class="inline" id="redrawWrap" style="display:none"><input id="redrawWheel" type="checkbox" checked /> 每次抽前重畫轉盤</label>
+        </div>
+
+        <div class="flex">
+          <button class="btn" id="drawBatchBtn">批次抽獎</button>
+          <button class="btn ghost" id="resetBtn">整理/重置名單</button>
+          <button class="btn success" id="exportBtn">導出結果CSV</button>
+        </div>
+
+        <div class="result" id="result">結果會顯示在這裡</div>
+
+        <div class="history" id="historyWrap" style="display:none;">
+          <b>抽出紀錄：</b>
+          <div id="history"></div>
+        </div>
+      </div>
+
+      <!-- 右側：獎項與轉盤 -->
+      <div>
+        <div class="section-title">多獎項設定</div>
+        <div class="small">可自訂多個獎項與名額，將依序抽出。</div>
+        <div id="prizeList" class="prize-grid">
+          <div class="small"><b>獎項名稱</b></div>
+          <div class="small"><b>名額</b></div>
+          <div></div>
+        </div>
+        <div class="flex">
+          <button class="btn acc" id="addPrizeBtn">新增獎項</button>
+          <button class="btn warn" id="quickSampleBtn">快速填入示例</button>
+        </div>
+
+        <div class="wheel-wrap" id="wheelWrap">
+          <div class="wheel" id="wheel">
+            <div class="pointer"></div>
+            <canvas id="wheelCanvas" width="480" height="480"></canvas>
+            <div class="wheel-center" id="wheelCenter">
+              轉
+              <div class="small" id="wheelSub">點擊「批次抽獎」</div>
+            </div>
+          </div>
+          <div class="note" style="margin-left:12px">
+            切片等分；實際中獎機率依權重演算法決定。
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">本頁皆在瀏覽器端執行，不上傳任何資料。</div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const listEl = $('#list');
+const uniqueEl = $('#unique');
+const weightedEl = $('#weighted');
+const useWheelEl = $('#useWheel');
+const redrawWrap = $('#redrawWrap');
+const redrawWheelEl = $('#redrawWheel');
+const resultEl = $('#result');
+const historyWrapEl = $('#historyWrap');
+const historyEl = $('#history');
+
+const prizeListEl = $('#prizeList');
+const addPrizeBtn = $('#addPrizeBtn');
+const quickSampleBtn = $('#quickSampleBtn');
+const drawBatchBtn = $('#drawBatchBtn');
+const resetBtn = $('#resetBtn');
+const exportBtn = $('#exportBtn');
+
+const wheelWrap = $('#wheelWrap');
+const wheel = $('#wheel');
+const wheelCanvas = $('#wheelCanvas');
+const wheelCenter = $('#wheelCenter');
+const wheelSub = $('#wheelSub');
+const ctx = wheelCanvas.getContext('2d');
+
+/* 狀態 */
+function saveState(){
+  localStorage.setItem('draw_batch_wheel_v1', JSON.stringify({
+    listText: listEl.value,
+    unique: uniqueEl.checked,
+    weighted: weightedEl.checked,
+    useWheel: useWheelEl.checked,
+    redraw: redrawWheelEl.checked,
+    prizes: getPrizes()
+  }));
+}
+function loadState(){
+  const s = JSON.parse(localStorage.getItem('draw_batch_wheel_v1')||'{}');
+  if (s.listText != null) listEl.value = s.listText;
+  if (typeof s.unique==='boolean') uniqueEl.checked = s.unique;
+  if (typeof s.weighted==='boolean') weightedEl.checked = s.weighted;
+  if (typeof s.useWheel==='boolean') useWheelEl.checked = s.useWheel;
+  if (typeof s.redraw==='boolean') redrawWheelEl.checked = s.redraw;
+  if (Array.isArray(s.prizes) && s.prizes.length){
+    prizeListEl.innerHTML = '<div class="small"><b>獎項名稱</b></div><div class="small"><b>名額</b></div><div></div>';
+    for (const p of s.prizes) addPrizeRow(p.name, p.count);
+  }else{
+    addPrizeRow('頭獎', 1);
+    addPrizeRow('貳獎', 2);
+    addPrizeRow('參獎', 3);
+  }
+  toggleWheel(useWheelEl.checked);
+}
+
+/* 名單與加權 */
+function parseListWithWeights(){
+  const lines = listEl.value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const map = new Map(); // name -> weight
+  for (const line of lines){
+    const m = line.match(/^(.+?),(.+)$/);
+    if (m && weightedEl.checked){
+      const name = m[1].trim();
+      const w = parseFloat(m[2].trim());
+      if (!name) continue;
+      const weight = Number.isFinite(w) && w>0 ? w : 1;
+      map.set(name, (map.get(name)||0)+weight);
+    }else{
+      map.set(line, (map.get(line)||0)+1);
+    }
+  }
+  return Array.from(map.entries()).map(([name, weight])=>({name, weight}));
+}
+function weightedPickOne(pool){
+  const total = pool.reduce((s,x)=>s+(x.weight>0?x.weight:0),0);
+  if (total<=0) return null;
+  let r = Math.random()*total;
+  for (const x of pool){
+    const w = x.weight>0?x.weight:0;
+    if (r < w) return x.name;
+    r -= w;
+  }
+  return pool[pool.length-1]?.name ?? null;
+}
+
+/* 獎項設定 */
+function getPrizes(){
+  const rows = prizeListEl.querySelectorAll('.prize-row');
+  const arr = [];
+  rows.forEach(r=>{
+    const name = r.querySelector('.pname').value.trim() || '未命名獎項';
+    const n = parseInt(r.querySelector('.pcount').value, 10);
+    const count = Number.isFinite(n) && n>0 ? Math.min(n,9999) : 1;
+    arr.push({name, count});
+  });
+  return arr;
+}
+function addPrizeRow(name='獎項', count=1){
+  const row = document.createElement('div');
+  row.className = 'prize-row';
+  row.innerHTML = `
+    <input class="pname" type="text" placeholder="獎項名稱" value="${name}"/>
+    <input class="pcount" type="number" min="1" value="${count}"/>
+    <div class="flex" style="gap:6px">
+      <button class="btn ghost delbtn" type="button">刪除</button>
+      <button class="btn ghost upbtn" type="button">上移</button>
+      <button class="btn ghost downbtn" type="button">下移</button>
+    </div>
+  `;
+  prizeListEl.appendChild(row);
+  row.querySelector('.delbtn').onclick = ()=>{ row.remove(); saveState(); };
+  row.querySelector('.upbtn').onclick = ()=>{ const prev = row.previousElementSibling; if(prev && prev.classList.contains('prize-row')) prizeListEl.insertBefore(row, prev); saveState(); };
+  row.querySelector('.downbtn').onclick = ()=>{ const next = row.nextElementSibling; if(next) prizeListEl.insertBefore(next, row); saveState(); };
+  row.querySelector('.pname').oninput = saveState;
+  row.querySelector('.pcount').oninput = saveState;
+}
+
+/* 轉盤繪製與動畫 */
+function toggleWheel(show){
+  wheelWrap.style.display = show ? 'flex' : 'none';
+  redrawWrap.style.display = show ? 'inline-flex' : 'none';
+  if (show) drawWheel(parseListWithWeights());
+}
+function drawWheel(segments){
+  const W = wheelCanvas.width, H = wheelCanvas.height;
+  const cx=W/2, cy=H/2, R=W/2-10;
+  ctx.clearRect(0,0,W,H);
+  const N = Math.max(segments.length, 1);
+  const colors = ['#ffd54f','#4fc3f7','#a5d6a7','#ff8a65','#ce93d8','#90caf9','#ffccbc','#ef9a9a','#80cbc4','#c5e1a5'];
+
+  // 圓餅切片
+  for (let i=0;i<N;i++){
+    const a0 = (2*Math.PI*i)/N - Math.PI/2;
+    const a1 = (2*Math.PI*(i+1))/N - Math.PI/2;
+    ctx.beginPath();
+    ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,R,a0,a1);
+    ctx.closePath();
+    ctx.fillStyle = colors[i%colors.length];
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  // 文字
+  ctx.save();
+  ctx.translate(cx,cy);
+  for (let i=0;i<N;i++){
+    const mid = (2*Math.PI*(i+0.5))/N - Math.PI/2;
+    ctx.save();
+    ctx.rotate(mid);
+    ctx.translate(R*0.7, 0);
+    ctx.rotate(Math.PI/2);
+    ctx.fillStyle = '#222';
+    ctx.font = '14px "Noto Sans TC", system-ui, sans-serif';
+    const label = segments[i]?.name ?? '';
+    clipText(label, 120);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  function clipText(text, maxW){
+    let str = text;
+    while (ctx.measureText(str).width > maxW && str.length>1) str = str.slice(0,-1);
+    if (str!==text) str = str.slice(0,-1)+'…';
+    ctx.fillText(str, -maxW/2, 5);
+  }
+}
+let wheelSpinning = false;
+function easeOutCubic(t){ return 1 - Math.pow(1-t,3); }
+function spinToWinner(segments, winnerName){
+  if (wheelSpinning) return Promise.resolve();
+  wheelSpinning = true;
+  wheelSub.textContent = '轉動中…';
+
+  const N = Math.max(segments.length, 1);
+  const segAngle = 360/N;
+  const idx = Math.max(0, segments.findIndex(s=>s.name===winnerName));
+  const target = 360*8 + (idx*segAngle + segAngle/2); // 多圈後停在中間
+  const duration = 3200 + Math.random()*800;
+  const start = performance.now();
+
+  return new Promise(resolve=>{
+    function frame(now){
+      const t = Math.min(1, (now-start)/duration);
+      const angle = target * easeOutCubic(t);
+      wheel.style.transform = `rotate(${angle}deg)`;
+      if (t<1){
+        requestAnimationFrame(frame);
+      }else{
+        setTimeout(()=>{ wheelSpinning = false; wheelSub.textContent = '點擊「批次抽獎」'; resolve(); }, 250);
+      }
+    }
+    requestAnimationFrame(frame);
+  });
+}
+
+/* 抽獎核心：支援多獎項與轉盤 */
+async function drawBatch(){
+  const items = parseListWithWeights();
+  let pool = items.map(x=>({...x})); // {name, weight}
+  const prizes = getPrizes();
+  const unique = uniqueEl.checked;
+  const useWheel = useWheelEl.checked;
+
+  const totalNeed = prizes.reduce((s,p)=>s+p.count,0);
+  if (pool.length===0){
+    resultEl.textContent = '名單是空的，請先輸入項目。';
+    return;
+  }
+  if (unique && totalNeed > pool.length){
+    resultEl.textContent = `名單不足以抽出所有獎項名額（需 ${totalNeed}，僅有 ${pool.length}）。`;
+    return;
+  }
+
+  const batchResults = [];
+
+  for (const prize of prizes){
+    const thisWinners = [];
+    for (let k=0; k<Math.min(prize.count, pool.length); k++){
+      // 每一名額都以當前 pool 旋一次
+      if (useWheel && redrawWheelEl.checked) drawWheel(pool);
+      const segments = pool.map(x=>({name:x.name, weight:x.weight}));
+      const winnerName = weightedEl.checked ? weightedPickOne(pool) : pool[Math.floor(Math.random()*pool.length)].name;
+      if (useWheel) await spinToWinner(segments, winnerName);
+      thisWinners.push(winnerName);
+      if (unique){
+        const idx = pool.findIndex(x=>x.name===winnerName);
+        if (idx>=0) pool.splice(idx,1);
+      }
+    }
+    batchResults.push({prize: prize.name, winners: thisWinners});
+  }
+
+  // 顯示結果
+  const lines = [];
+  for (const br of batchResults){
+    lines.push(`【${br.prize}】${br.winners.length? br.winners.join('、') : '（無）'}`);
+    if (br.winners.length) addHistoryGroup(br.prize, br.winners);
+  }
+  resultEl.innerHTML = lines.map(l=>`<div>${l}</div>`).join('');
+
+  // 更新名單（移除所有中獎者）
+  if (unique){
+    const wonSet = new Set(batchResults.flatMap(b=>b.winners));
+    const rawLines = listEl.value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    const kept = [];
+    for (const line of rawLines){
+      const m = line.match(/^(.+?),(.+)$/);
+      if (m){
+        const name = m[1].trim();
+        if (!wonSet.has(name)) kept.push(line);
+      }else{
+        if (!wonSet.has(line)) kept.push(line);
+      }
+    }
+    listEl.value = kept.join('\n');
+  }
+
+  // 若使用轉盤，最後重畫成剩餘名單
+  if (useWheel){
+    const seg = pool.map(x=>({name:x.name, weight:x.weight}));
+    drawWheel(seg);
+  }
+  saveState();
+}
+function addHistoryGroup(prizeName, items){
+  historyWrapEl.style.display = 'block';
+  const title = document.createElement('div');
+  title.style.marginTop = '10px';
+  title.innerHTML = `<b>${prizeName}</b>`;
+  const group = document.createElement('div');
+  for (const it of items){
+    const span = document.createElement('span');
+    span.className = 'pill';
+    span.textContent = it;
+    group.appendChild(span);
+  }
+  historyEl.prepend(group);
+  historyEl.prepend(title);
+}
+
+/* 匯出 CSV */
+function exportCSV(){
+  const rows = [];
+  rows.push(['type','prize','value']);
+  const nodes = Array.from(historyEl.children).reverse(); // 由早到晚
+  let currentPrize = '';
+  nodes.forEach(n=>{
+    if (n.tagName==='DIV' && n.innerHTML.startsWith('<b>')){
+      currentPrize = n.textContent.trim();
+    } else {
+      const pills = Array.from(n.querySelectorAll('.pill')).map(x=>x.textContent);
+      for (const p of pills) rows.push(['history', currentPrize, p]);
+    }
+  });
+  const remain = parseListWithWeights();
+  for (const it of remain){
+    rows.push(['remaining','',it.name]);
+  }
+  const csv = rows.map(r => r.map(s=>{
+    const v = String(s ?? '');
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v;
+  }).join(',')).join('\n');
+
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const ts = new Date().toISOString().replace(/[:.]/g,'-');
+  a.download = `draw_batch_${ts}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* 其他動作 */
+function resetList(){
+  const items = parseListWithWeights();
+  const lines = items.map(x => weightedEl.checked ? `${x.name},${x.weight}` : x.name);
+  listEl.value = lines.join('\n');
+  resultEl.textContent = '結果會顯示在這裡';
+  historyEl.innerHTML = '';
+  historyWrapEl.style.display = 'none';
+  saveState();
+  if (useWheelEl.checked) drawWheel(parseListWithWeights());
+}
+
+/* 綁定事件 */
+addPrizeBtn.onclick = ()=>{ addPrizeRow('新獎項', 1); saveState(); };
+quickSampleBtn.onclick = ()=>{
+  listEl.value = 'Alice,5\nBob,1\n小明,2\n小美,3\n小張,2\n小王,1\nDiana,4\nEric,2\nFiona,1\nGeorge,3';
+  prizeListEl.innerHTML = '<div class="small"><b>獎項名稱</b></div><div class="small"><b>名額</b></div><div></div>';
+  addPrizeRow('頭獎', 1);
+  addPrizeRow('貳獎', 2);
+  addPrizeRow('參獎', 3);
+  saveState();
+  if (useWheelEl.checked) drawWheel(parseListWithWeights());
+};
+drawBatchBtn.onclick = ()=>{ if (!wheelSpinning) drawBatch(); };
+resetBtn.onclick = resetList;
+exportBtn.onclick = exportCSV;
+
+[listEl, uniqueEl, weightedEl, useWheelEl, redrawWheelEl].forEach(el=>{
+  el.addEventListener('input', ()=>{ saveState(); if (useWheelEl.checked && (el===listEl || el===weightedEl || el===redrawWheelEl)) drawWheel(parseListWithWeights()); });
+  el.addEventListener('change', ()=>{ saveState(); toggleWheel(useWheelEl.checked); if (useWheelEl.checked) drawWheel(parseListWithWeights()); });
+});
+
+/* 初始化 */
+loadState();
+if (useWheelEl.checked){
+  drawWheel(parseListWithWeights());
+}
+</script>
+</body>
+</html>
